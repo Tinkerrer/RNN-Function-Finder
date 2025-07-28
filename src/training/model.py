@@ -6,7 +6,7 @@ import random
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.metrics import F1Score, Precision, Recall, TruePositives, TrueNegatives, FalsePositives, \
     FalseNegatives
-from tensorflow.keras.layers import Dense, Bidirectional, SimpleRNN, GRU, LSTM
+from tensorflow.keras.layers import Dense, Bidirectional, SimpleRNN, GRU, LSTM, Embedding, TimeDistributed
 from tensorflow.keras.activations import sigmoid
 from tensorflow.keras.datasets import imdb
 from tensorflow.keras.preprocessing import sequence
@@ -22,8 +22,6 @@ import math
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import precision_score, recall_score, f1_score
 
-RANDOM_SEED = 42
-
 
 class SklearnMetricsCallback(Callback):
     def __init__(self, validation_data):
@@ -38,160 +36,151 @@ class SklearnMetricsCallback(Callback):
 
         y_pred_class = (np.array([item for sublist in y_pred for item in sublist]) > 0.5).astype(int)
 
-        # Вычисляем метрики
+        # Вычисляем метрики для класса 1
         precision = precision_score(self.merged_Y_val, y_pred_class, average="binary", zero_division=0, pos_label=1)
         recall = recall_score(self.merged_Y_val, y_pred_class, average="binary", zero_division=0, pos_label=1)
         f1 = f1_score(self.merged_Y_val, y_pred_class, average="binary", zero_division=0, pos_label=1)
 
         print(
-            f"\n[Sklearn Metrics for 1 class] Precision: {precision:.4f}, "
-            f"Recall: {recall:.4f}, F1: {f1:.4f} (avg=binary)"
+            f"\n[Sklearn Metrics for 1 class] Precision: {precision:.6f}, "
+            f"Recall: {recall:.6f}, F1: {f1:.6f} (avg=binary)"
         )
 
+        # Обновляем логи для класса 1
+        logs['first_class_val_precision'] = precision
+        logs['first_class_val_recall'] = recall
+        logs['first_class_val_f1'] = f1
+
+        # Вычисляем метрики для класса 0
         precision = precision_score(self.merged_Y_val, y_pred_class, average="binary", zero_division=0, pos_label=0)
         recall = recall_score(self.merged_Y_val, y_pred_class, average="binary", zero_division=0, pos_label=0)
         f1 = f1_score(self.merged_Y_val, y_pred_class, average="binary", zero_division=0, pos_label=0)
 
         print(
-            f"\n[Sklearn Metrics for 0 class] Precision: {precision:.4f}, "
-            f"Recall: {recall:.4f}, F1: {f1:.4f} (avg=binary)"
+            f"\n[Sklearn Metrics for 0 class] Precision: {precision:.6f}, "
+            f"Recall: {recall:.6f}, F1: {f1:.6f} (avg=binary)"
         )
 
+        # Обновляем логи для класса 0
+        logs['zero_class_val_precision'] = precision
+        logs['zero_class_val_recall'] = recall
+        logs['zero_class_val_f1'] = f1
+
+        # Вычисляем взвешенный f1
         f1 = f1_score(self.merged_Y_val, y_pred_class, average="weighted", zero_division=0)
 
         print(
             f"\n[Sklearn Weight Metrics] "
-            f"F1: {f1:.4f} (avg=weighted)"
+            f"F1: {f1:.6f} (avg=weighted)"
         )
 
-
-class ShuffleCallback(Callback):
-    def __init__(self, x_data, y_data):
-        super().__init__()
-        self.X = x_data
-        self.Y = y_data
-
-    def on_epoch_end(self, epoch, logs=None):
-        # Перемешиваем данные
-        permutation = np.random.permutation(len(self.X))
-        self.X[:] = self.X[permutation]
-        self.Y[:] = self.Y[permutation]
-
-
-# Изменение скорости обучения
-def lr_scheduler(epoch, lr):
-    return 0.001 / math.sqrt(epoch + 1)
+        logs['weighted_val_f1'] = f1
 
 
 # Основной класс
 class BidirectionalRNNClassifier:
-    def __init__(self):
+    def __init__(self, epochs=None, sequence_length=None, neurons_num=None,
+                 first_layer_activation=None, first_layer_arch=None):
+
         # Размер One-hot вектора
         self.byte_embedding_size = 256
+
         # Размер батча
         self.batch_size = 32  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+
         # Эпохи
-        self.epochs = 30  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+        if epochs is None:
+            self.epochs = 30  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+        else:
+            self.epochs = epochs
+
         # Разделение данных на обучающие и валидирующие
         self.validation_split = 0.2  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
-        # Количество нейронов в первом слое или длина входной последовательности
-        self.sequence_length = 24  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+
+        # Длина входной последовательности
+        if sequence_length is None:
+            self.sequence_length = 1000  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+        else:
+            self.sequence_length = sequence_length
+
+        # Количество нейронов в первом слое
+        if neurons_num is None:
+            self.neurons_num = 16  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+        else:
+            self.neurons_num = neurons_num
+
         # Функция активации на первом слое
-        self.first_layer_activation = "sigmoid"
+        if first_layer_activation is None:
+            self.first_layer_activation = "relu"  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+        else:
+            self.first_layer_activation = first_layer_activation
+
+        # Функция активации на первом слое
+        if first_layer_arch is None or first_layer_arch == "rnn":
+            self.first_layer_arch = SimpleRNN  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+        elif first_layer_arch is None or first_layer_arch == "gru":
+            self.first_layer_arch = GRU  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+        elif first_layer_arch is None or first_layer_arch == "lstm":
+            self.first_layer_arch = LSTM  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+
+        # Рандомный сид
+        self.random_seed = 42
 
         self.model = self.__build_model()
 
     def __build_model(self):
         # Создание архитектуры модели
         # Двунаправленная RNN
-        layer = SimpleRNN(self.sequence_length,
-                                   activation=self.first_layer_activation,
-                                   go_backwards=False,
-                                   return_sequences=True,
-                                   input_shape=(None, self.byte_embedding_size))
-
-        # forward_lstm_2 = SimpleRNN(30,
-        #                            activation='sigmoid',
-        #                            go_backwards=False,
-        #                            )
-        #
-        # backward_lstm_2 = SimpleRNN(30,
-        #                             activation='sigmoid',
-        #                             go_backwards=True,
-        #                             )
 
         model = Sequential([
-            Bidirectional(
-                layer
+            Embedding(
+                input_dim=self.byte_embedding_size + 1,
+                output_dim=self.neurons_num,
+                input_length=self.sequence_length
             ),
-            Dense(1, activation='sigmoid')
+            Bidirectional(
+                self.first_layer_arch(self.neurons_num,
+                                      activation=self.first_layer_activation,
+                                      return_sequences=True,
+                                      input_shape=(None, self.byte_embedding_size)
+                                      )
+            ),
+            TimeDistributed(Dense(1, activation='sigmoid'))
         ])
 
         model.compile(
-            optimizer='rmsprop',  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            optimizer='adam',  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
             loss='binary_crossentropy',
-            #     Bullshit!
-            #     Very very strange and SUS values. Maybe it works with 2D vectors as a multilabel indicator. IDK
-            # metrics=[
-
-            #     'binary_accuracy',
-            #     Precision(),
-            #     Recall(),
-            #     F1Score(threshold=0.5, average="weighted"),
-            #     TruePositives(thresholds=0.5),
-            #     TrueNegatives(thresholds=0.5),
-            #     FalsePositives(thresholds=0.5),
-            #     FalseNegatives(thresholds=0.5),
-            # ]
         )
         return model
 
     def __preprocess_data(self, sequences, property_sequences=None):
-        # Преобразование последовательностей байт в one-hot encoded данные
-
-        processed_seq = np.zeros((len(sequences), self.sequence_length, self.byte_embedding_size),
-                                 dtype=np.float32)
-
-        # Преобразуем каждый байт в one-hot вектор
-        for i, seq in enumerate(sequences):
-
-            for t, byte in enumerate(seq):
-                processed_seq[i, t, byte] = 1.0
+        processed_seq = pad_sequences(
+            sequences,
+            maxlen=self.sequence_length,
+            padding='post',  # 'post' — нули в конец, 'pre' — в начало
+            dtype='int32',
+            value=0
+        )
 
         if property_sequences is None:
             return processed_seq, None
 
-        # Блаблабла
-        padded_prop_seq = pad_sequences(
+        processed_property_sequences = pad_sequences(
             property_sequences,
+            maxlen=self.sequence_length,
             padding='post',  # 'post' — нули в конец, 'pre' — в начало
-            dtype='float32'
+            dtype='int32',
+            value=0
         )
-
-        processed_property_sequences = np.array(padded_prop_seq)
 
         return processed_seq, processed_property_sequences
 
-    # def split_byte_sequences(self, sequences, property_sequences):
-    #     # Создание последовательностей байт из функций
-    #     split_sequences = []
-    #     split_property_sequences = []
-
-    #     for seq in sequences:
-    #         split_sequences.extend([seq[i:i + self.sequence_length] for i in range(0, len(seq), self.sequence_length)])
-
-    #     for prop_seq in property_sequences:
-    #         split_property_sequences.extend(
-    #             [prop_seq[i:i + self.sequence_length] for i in range(0, len(prop_seq), self.sequence_length)])
-
-    #     return split_sequences, split_property_sequences
-
-    # Как будто бы все равно недостаточно из-за параллельности вычислений tensorflow((
-    def set_seed(self, seed=RANDOM_SEED):
-        os.environ['PYTHONHASHSEED'] = str(seed)
-        random.seed(seed)
-        tf.random.set_seed(seed)
-        np.random.seed(seed)
+    def set_seed(self):
+        os.environ['PYTHONHASHSEED'] = str(self.random_seed)
+        random.seed(self.random_seed)
+        tf.random.set_seed(self.random_seed)
+        np.random.seed(self.random_seed)
 
     def split_byte_sequences(self, sequences, property_sequences):
         # Создание последовательностей байт из функций
@@ -213,42 +202,50 @@ class BidirectionalRNNClassifier:
 
                 prop_seq_weight = sum(property_sequences[i][j:j + self.sequence_length])
 
-                if prop_seq_weight == 0:
-                    continue
-
                 func_start_count += prop_seq_weight
 
                 if prop_seq_weight > 1:
                     func_start_repeat_at_seq += prop_seq_weight
 
-                split_sequences.append(sequences[i][j:j + self.sequence_length])
-                split_property_sequences.append(property_sequences[i][j:j + self.sequence_length])
+                split_sequences.append(list(sequences[i][j:j + self.sequence_length]))
+                split_property_sequences.append(list(property_sequences[i][j:j + self.sequence_length]))
 
-        print(func_start_count)
-        print(func_start_repeat_at_seq)
+            tail_length = len(sequences[i]) % self.sequence_length
 
-        print(len(split_sequences))
-        print(len(split_property_sequences))
+            if tail_length != 0:
+                split_sequences.append(
+                    list(sequences[i][len(sequences[i]) - tail_length:len(sequences[i])]
+                         )
+                )
+                split_property_sequences.append(
+                    list(property_sequences[i][len(property_sequences[i]) - tail_length:len(property_sequences[i])]
+                         )
+                )
+
+        print(f"Total func start number after split: {func_start_count}")
+        print(f"Total func start number in same sequences: {func_start_repeat_at_seq}")
+
+        print(f"Total sequences: {len(split_sequences)}")
+        print(f"Total property sequences: {len(split_property_sequences)}")
 
         return split_sequences, split_property_sequences
 
     def train(self, x_data, y_data):
         # Обучение модели
+        # Обязательно устанавливаем seed для воспроизводимости!!!!
+        self.set_seed()
 
         # Разбиение данных
         x_train, x_val, y_train, y_val = train_test_split(
             x_data, y_data,
             test_size=self.validation_split,
             shuffle=True,
-            random_state=RANDOM_SEED
+            random_state=self.random_seed
         )
 
         # Преобразование данных
         x_train_preprocessed, y_train_preprocessed = self.__preprocess_data(x_train, y_train)
         x_val_preprocessed, y_val_preprocessed = self.__preprocess_data(x_val, y_val)
-
-        # Обязательно устанавливаем seed для воспроизводимости!!!!
-        self.set_seed()
 
         # Добавляем EarlyStopping по умолчанию, если не переданы другие коллбэки
         callbacks = [
@@ -256,11 +253,7 @@ class BidirectionalRNNClassifier:
             SklearnMetricsCallback(  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
                 validation_data=(x_val_preprocessed, y_val_preprocessed)
             ),
-            ShuffleCallback(x_train_preprocessed, y_train_preprocessed)
-            # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
-            # LearningRateScheduler(lr_scheduler)
         ]
-        # callbacks = []
 
         history = self.model.fit(
             x_train_preprocessed, y_train_preprocessed,
@@ -268,14 +261,14 @@ class BidirectionalRNNClassifier:
             epochs=self.epochs,
             validation_data=(x_val_preprocessed, y_val_preprocessed),
             callbacks=callbacks,
-            class_weight={0: 1, 1: 250}  # # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            class_weight={0: 1, 1: 400}  # # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
         )
         return history
 
     def predict(self, byte_sequence):
         # Предсказание свойства начала функции для каждого байта в последовательности
 
-        # Преобразование в one-hot
+        # Предобработка данных (дополнение нулями)
         encoded = self.__preprocess_data([byte_sequence], None)
 
         # Предсказание
@@ -295,3 +288,13 @@ class BidirectionalRNNClassifier:
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"Файл весов не найден: {filepath}")
         self.model.load_weights(filepath)
+
+    def save_model(self, filepath, overwrite=True):
+        # Сохранение модели
+        self.model.save(filepath, overwrite=overwrite)
+
+    def load_model(self, filepath):
+        # Загрузка модели
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"Файл модели не найден: {filepath}")
+        self.model.load_model(filepath)

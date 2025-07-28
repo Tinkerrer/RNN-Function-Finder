@@ -50,12 +50,14 @@ def main(idb_dir_path):
 
     model = BidirectionalRNNClassifier()
 
-    print(f"Total func number: {sum(sum(seq) for seq in idb_func_property)}")
+    print(f"Total functions number: {sum(sum(seq) for seq in idb_func_property)}")
     print(f"Total bytes number: {sum(len(seq) for seq in idb_func_property)}")
 
     x_data, y_data = model.split_byte_sequences(idb_data, idb_func_property)
     print(model.summary())
     model.train(x_data, y_data)
+
+    model.save_model("find_func_start_model.h5")
 
 
 if __name__ == "__main__":
