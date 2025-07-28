@@ -16,6 +16,7 @@ from tensorflow.keras.optimizers import RMSprop
 from tensorflow.keras.optimizers.schedules import LearningRateSchedule
 from keras.callbacks import LearningRateScheduler
 from tensorflow.keras.callbacks import Callback
+from tensorflow import one_hot
 
 import math
 
@@ -80,7 +81,7 @@ class SklearnMetricsCallback(Callback):
 # Основной класс
 class BidirectionalRNNClassifier:
     def __init__(self, epochs=None, sequence_length=None, neurons_num=None,
-                 first_layer_activation=None, first_layer_arch=None):
+                 first_layer_activation=None, first_layer_arch=None, weight_multiplier=None):
 
         # Размер One-hot вектора
         self.byte_embedding_size = 256
@@ -116,12 +117,18 @@ class BidirectionalRNNClassifier:
             self.first_layer_activation = first_layer_activation
 
         # Функция активации на первом слое
-        if first_layer_arch is None or first_layer_arch == "rnn":
+        if (first_layer_arch is None) or (first_layer_arch == "rnn"):
             self.first_layer_arch = SimpleRNN  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
-        elif first_layer_arch is None or first_layer_arch == "gru":
+        elif first_layer_arch == "gru":
             self.first_layer_arch = GRU  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
-        elif first_layer_arch is None or first_layer_arch == "lstm":
+        elif first_layer_arch == "lstm":
             self.first_layer_arch = LSTM  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+
+        # Множитель веса функции потерь
+        if weight_multiplier is None:
+            self.weight_multiplier = 400  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+        else:
+            self.weight_multiplier = weight_multiplier
 
         # Рандомный сид
         self.random_seed = 42
@@ -133,11 +140,11 @@ class BidirectionalRNNClassifier:
         # Двунаправленная RNN
 
         model = Sequential([
-            Embedding(
-                input_dim=self.byte_embedding_size + 1,
-                output_dim=self.neurons_num,
-                input_length=self.sequence_length
-            ),
+            # Embedding(
+            #     input_dim=self.byte_embedding_size + 1,
+            #     output_dim=self.neurons_num,
+            #     input_length=self.sequence_length
+            # ),
             Bidirectional(
                 self.first_layer_arch(self.neurons_num,
                                       activation=self.first_layer_activation,
@@ -149,18 +156,21 @@ class BidirectionalRNNClassifier:
         ])
 
         model.compile(
-            optimizer='adam',  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            optimizer='rmsprop',  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
             loss='binary_crossentropy',
         )
         return model
 
     def __preprocess_data(self, sequences, property_sequences=None):
-        processed_seq = pad_sequences(
-            sequences,
-            maxlen=self.sequence_length,
-            padding='post',  # 'post' — нули в конец, 'pre' — в начало
-            dtype='int32',
-            value=0
+        processed_seq = one_hot(
+            pad_sequences(
+                sequences,
+                maxlen=self.sequence_length,
+                padding='post',  # 'post' — нули в конец, 'pre' — в начало
+                dtype='int32',
+                value=0
+            ),
+            self.byte_embedding_size
         )
 
         if property_sequences is None:
@@ -261,7 +271,7 @@ class BidirectionalRNNClassifier:
             epochs=self.epochs,
             validation_data=(x_val_preprocessed, y_val_preprocessed),
             callbacks=callbacks,
-            class_weight={0: 1, 1: 400}  # # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            class_weight={0: 1, 1: self.weight_multiplier}  # # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
         )
         return history
 
