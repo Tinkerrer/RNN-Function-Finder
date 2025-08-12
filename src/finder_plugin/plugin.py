@@ -52,21 +52,30 @@ class FunctionStartFinderPlugmod(ida_idaapi.plugmod_t):
 
         predicted = loaded_model.predict(prepared_byte_seq)
 
-        created_ctr = 0
+        found_ctr = 0
         error_create_ctr = 0
 
-        for addr in range(start_addr, end_addr):
-            if predicted[(addr - start_addr) // SEQUENCE_LENGTH][(addr - start_addr) % SEQUENCE_LENGTH] > 0.5:
+        if soft_predict:
+            for addr in range(start_addr, end_addr):
+                if predicted[(addr - start_addr) // SEQUENCE_LENGTH][(addr - start_addr) % SEQUENCE_LENGTH] > 0.5:
+                    ida_funcs.set_func_cmt(addr, "Possible Func Start !!!", 1)
+                    found_ctr += 1
 
-                if ida_funcs.add_func(addr):
-                    created_ctr += 1
-                    continue
+        else:
+            for addr in range(start_addr, end_addr):
+                if predicted[(addr - start_addr) // SEQUENCE_LENGTH][(addr - start_addr) % SEQUENCE_LENGTH] > 0.5:
 
-                print(f"Can't create func on {hex(addr)}")
-                error_create_ctr += 1
+                    if ida_funcs.add_func(addr):
+                        found_ctr += 1
+                        continue
 
-        print(f">>> Number of created functions: {created_ctr}.")
-        print(f">>> Number of functions that could not be created: {error_create_ctr}.")
+                    print(f"Can't create func on {hex(addr)}")
+                    error_create_ctr += 1
+
+            print(f">>> Number of functions that could not be created: {error_create_ctr}.")
+
+        print(f">>> Total found function number : {found_ctr}.")
+
 
     def run(self, arg):
 
