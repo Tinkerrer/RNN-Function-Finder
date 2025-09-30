@@ -16,6 +16,7 @@ from tensorflow.keras.optimizers import RMSprop
 from tensorflow.keras.optimizers.schedules import LearningRateSchedule
 from keras.callbacks import LearningRateScheduler
 from tensorflow.keras.callbacks import Callback
+from tensorflow.keras.losses import BinaryFocalCrossentropy
 from tensorflow import one_hot
 
 import math
@@ -126,7 +127,7 @@ class BidirectionalRNNClassifier:
 
         # Множитель веса функции потерь
         if weight_multiplier is None:
-            self.weight_multiplier = 400  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            self.weight_multiplier = 0.9  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
         else:
             self.weight_multiplier = weight_multiplier
 
@@ -140,11 +141,6 @@ class BidirectionalRNNClassifier:
         # Двунаправленная RNN
 
         model = Sequential([
-            # Embedding(
-            #     input_dim=self.byte_embedding_size + 1,
-            #     output_dim=self.neurons_num,
-            #     input_length=self.sequence_length
-            # ),
             Bidirectional(
                 self.first_layer_arch(self.neurons_num,
                                       activation=self.first_layer_activation,
@@ -157,9 +153,39 @@ class BidirectionalRNNClassifier:
 
         model.compile(
             optimizer='rmsprop',  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
-            loss='binary_crossentropy',
+            loss=BinaryFocalCrossentropy(alpha=self.weight_multiplier, gamma=2.0),
         )
         return model
+
+    def __preprocess_mask_data(self, sequences, property_sequences, align_value, align_max_len):
+
+        for sequence_num in range(len(property_sequences)):
+            for byte_num in range(align_max_len + 1, len(property_sequences[sequence_num])):
+                if property_sequences[sequence_num][byte_num] == 1:
+                    for align_ctr in range(1, align_max_len + 1):
+                        if sequences[sequence_num][byte_num - align_ctr] == align_value:
+                            sequences[sequence_num][byte_num - align_ctr] = random.randint(0, 255)
+
+        processed_seq = one_hot(
+            pad_sequences(
+                sequences,
+                maxlen=self.sequence_length,
+                padding='post',  # 'post' — нули в конец, 'pre' — в начало
+                dtype='int32',
+                value=0
+            ),
+            self.byte_embedding_size
+        )
+
+        processed_property_sequences = pad_sequences(
+            property_sequences,
+            maxlen=self.sequence_length,
+            padding='post',  # 'post' — нули в конец, 'pre' — в начало
+            dtype='int32',
+            value=0
+        )
+
+        return processed_seq, processed_property_sequences
 
     def __preprocess_data(self, sequences, property_sequences=None):
         processed_seq = one_hot(
@@ -254,8 +280,8 @@ class BidirectionalRNNClassifier:
         )
 
         # Преобразование данных
-        x_train_preprocessed, y_train_preprocessed = self.__preprocess_data(x_train, y_train)
-        x_val_preprocessed, y_val_preprocessed = self.__preprocess_data(x_val, y_val)
+        x_train_preprocessed, y_train_preprocessed = self.__preprocess_mask_data(x_train, y_train, 0x0, 0x3)
+        x_val_preprocessed, y_val_preprocessed = self.__preprocess_mask_data(x_val, y_val, 0x0, 0x3)
 
         # Добавляем EarlyStopping по умолчанию, если не переданы другие коллбэки
         callbacks = [
@@ -271,7 +297,7 @@ class BidirectionalRNNClassifier:
             epochs=self.epochs,
             validation_data=(x_val_preprocessed, y_val_preprocessed),
             callbacks=callbacks,
-            class_weight={0: 1, 1: self.weight_multiplier}  # # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            class_weight={0: 1, 1: 100}  # # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
         )
         return history
 

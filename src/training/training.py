@@ -1,11 +1,13 @@
 import idb
 import sys
 import os
+import random
 
 from pathlib import Path
 
 from model import BidirectionalRNNClassifier
 
+RANDOM_PADDING = False
 
 def main(idb_dir_path):
     idb_data = []
@@ -31,9 +33,6 @@ def main(idb_dir_path):
                     print(f"Segment end: {hex(seg_end)}")
                     print(api.idc.GetSegmentAttr(seg_start, api.idc.SEGATTR_TYPE))
 
-                    #if api.idc.GetSegmentAttr(seg_start, api.idc.SEGATTR_TYPE) != 2:
-                    #    continue
-
                     property_seq = bytearray([0] * (seg_end - seg_start))
 
                     # Creating set from func start addresses
@@ -44,9 +43,24 @@ def main(idb_dir_path):
 
                     byte_seq = api.idaapi.get_bytes(seg_start, seg_end - seg_start)
 
-                    idb_data.append(byte_seq)
-                    idb_func_property.append(property_seq)
+                    # Without Random padding between functions
+                    if not RANDOM_PADDING:
+                        idb_data.append(byte_seq)
+                        idb_func_property.append(property_seq)
+                        continue
 
+                    # With Random padding between functions
+                    bytearray_seq = bytearray(byte_seq)
+
+                    if api.idc.GetSegmentAttr(seg_start, api.idc.SEGATTR_TYPE) == 2:
+                        print(bytes(bytearray_seq).count(0))
+
+                        for index in range(len(bytearray_seq)):
+                            if bytearray_seq[index] == 0x00 and (api.ida_funcs.get_func(seg_start + iter) is None):
+                                bytearray_seq[index] = random.randint(0, 255)
+
+                    idb_data.append(bytes(bytearray_seq))
+                    idb_func_property.append(property_seq)
 
     model = BidirectionalRNNClassifier()
 
