@@ -33,113 +33,105 @@ class SklearnMetricsCallback(Callback):
         self.merged_Y_val = [item for sublist in self.Y_val for item in sublist]
 
     def on_epoch_end(self, epoch, logs=None):
-        # Получаем предсказания модели
         y_pred = self.model.predict(self.X_val, verbose=0)
 
-        y_pred_class = (np.array([item for sublist in y_pred for item in sublist]) > 0.5).astype(int)
+        y_pred_class = (np.array([item for sublist in y_pred for item in sublist]) > self.threshold).astype(int)
 
-        # Вычисляем метрики для класса 1
+        # Calculate f1 for 1 class
         precision = precision_score(self.merged_Y_val, y_pred_class, average="binary", zero_division=0, pos_label=1)
         recall = recall_score(self.merged_Y_val, y_pred_class, average="binary", zero_division=0, pos_label=1)
         f1 = f1_score(self.merged_Y_val, y_pred_class, average="binary", zero_division=0, pos_label=1)
 
-        print(
-            f"\n[Sklearn Metrics for 1 class] Precision: {precision:.6f}, "
-            f"Recall: {recall:.6f}, F1: {f1:.6f} (avg=binary)"
-        )
-
-        # Обновляем логи для класса 1
         logs['first_class_val_precision'] = precision
         logs['first_class_val_recall'] = recall
         logs['first_class_val_f1'] = f1
 
-        # Вычисляем метрики для класса 0
-        precision = precision_score(self.merged_Y_val, y_pred_class, average="binary", zero_division=0, pos_label=0)
-        recall = recall_score(self.merged_Y_val, y_pred_class, average="binary", zero_division=0, pos_label=0)
-        f1 = f1_score(self.merged_Y_val, y_pred_class, average="binary", zero_division=0, pos_label=0)
+        # precision = precision_score(self.merged_Y_val, y_pred_class, average="binary", zero_division=0, pos_label=0)
+        # recall = recall_score(self.merged_Y_val, y_pred_class, average="binary", zero_division=0, pos_label=0)
+        # f1 = f1_score(self.merged_Y_val, y_pred_class, average="binary", zero_division=0, pos_label=0)
+        #
+        # logs['zero_class_val_precision'] = precision
+        # logs['zero_class_val_recall'] = recall
+        # logs['zero_class_val_f1'] = f1
 
-        print(
-            f"\n[Sklearn Metrics for 0 class] Precision: {precision:.6f}, "
-            f"Recall: {recall:.6f}, F1: {f1:.6f} (avg=binary)"
-        )
-
-        # Обновляем логи для класса 0
-        logs['zero_class_val_precision'] = precision
-        logs['zero_class_val_recall'] = recall
-        logs['zero_class_val_f1'] = f1
-
-        # Вычисляем взвешенный f1
+        # Calculate weighted f1
         f1 = f1_score(self.merged_Y_val, y_pred_class, average="weighted", zero_division=0)
-
-        print(
-            f"\n[Sklearn Weight Metrics] "
-            f"F1: {f1:.6f} (avg=weighted)"
-        )
 
         logs['weighted_val_f1'] = f1
 
 
-# Основной класс
 class BidirectionalRNNClassifier:
-    def __init__(self, epochs=None, sequence_length=None, neurons_num=None,
+    def __init__(self, random_padding_on_train=False, random_padding_on_val=False, epochs=None, sequence_length=None, neurons_num=None,
                  first_layer_activation=None, first_layer_arch=None, weight_multiplier=None):
 
-        # Размер One-hot вектора
+        # Random padding for training set
+        self.random_padding_on_train = random_padding_on_train
+
+        # Random padding for testing set
+        self.random_padding_on_val = random_padding_on_val
+
+        # One-hot size
         self.byte_embedding_size = 256
 
-        # Размер батча
-        self.batch_size = 32  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+        # TODO Batch size can affect the evaluation metrics
+        # Batch size
+        self.batch_size = 32
 
-        # Эпохи
+        # TODO Epochs number can affect the evaluation metrics
+        # Epochs number
         if epochs is None:
-            self.epochs = 30  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            self.epochs = 30
         else:
             self.epochs = epochs
 
-        # Разделение данных на обучающие и валидирующие
-        self.validation_split = 0.2  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+        # TODO Validation split percent can affect the evaluation metrics
+        # Validation split percent
+        self.validation_split = 0.2
 
-        # Длина входной последовательности
+        # TODO Input sequence length can affect the evaluation metrics
+        # Input sequence length
         if sequence_length is None:
-            self.sequence_length = 1000  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            self.sequence_length = 1000
         else:
             self.sequence_length = sequence_length
 
-        # Количество нейронов в первом слое
+        # TODO Number of neurons in the recurrent layer can affect the evaluation metrics
+        # Number of neurons in the recurrent layer
         if neurons_num is None:
-            self.neurons_num = 16  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            self.neurons_num = 16
         else:
             self.neurons_num = neurons_num
 
-        # Функция активации на первом слое
+        # TODO Activation function in the recurrent layer can affect the evaluation metrics
+        # Activation function in the recurrent layer
         if first_layer_activation is None:
-            self.first_layer_activation = "relu"  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            self.first_layer_activation = "relu"
         else:
             self.first_layer_activation = first_layer_activation
 
-        # Функция активации на первом слое
+        # TODO Architecture of the recurrent layer can affect the evaluation metrics
+        # Architecture of the recurrent layer
         if (first_layer_arch is None) or (first_layer_arch == "rnn"):
-            self.first_layer_arch = SimpleRNN  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            self.first_layer_arch = SimpleRNN
         elif first_layer_arch == "gru":
-            self.first_layer_arch = GRU  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            self.first_layer_arch = GRU
         elif first_layer_arch == "lstm":
-            self.first_layer_arch = LSTM  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            self.first_layer_arch = LSTM
 
-        # Множитель веса функции потерь
+        # TODO Loss function weight multiplier can affect the evaluation metrics
+        # Loss function weight multiplier
         if weight_multiplier is None:
-            self.weight_multiplier = 0.9  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            self.weight_multiplier = 0.9
         else:
             self.weight_multiplier = weight_multiplier
 
-        # Рандомный сид
+        # Random seed
         self.random_seed = 42
 
         self.model = self.__build_model()
 
     def __build_model(self):
-        # Создание архитектуры модели
-        # Двунаправленная RNN
-
+        # 1 bidirectional layer and 1 activation layer
         model = Sequential([
             Bidirectional(
                 self.first_layer_arch(self.neurons_num,
@@ -151,8 +143,9 @@ class BidirectionalRNNClassifier:
             TimeDistributed(Dense(1, activation='sigmoid'))
         ])
 
+        # TODO Loss function optimizer can affect the evaluation metrics
         model.compile(
-            optimizer='rmsprop',  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            optimizer='rmsprop',
             loss=BinaryFocalCrossentropy(alpha=self.weight_multiplier, gamma=2.0),
         )
         return model
@@ -170,7 +163,7 @@ class BidirectionalRNNClassifier:
             pad_sequences(
                 sequences,
                 maxlen=self.sequence_length,
-                padding='post',  # 'post' — нули в конец, 'pre' — в начало
+                padding='post',
                 dtype='int32',
                 value=0
             ),
@@ -180,7 +173,7 @@ class BidirectionalRNNClassifier:
         processed_property_sequences = pad_sequences(
             property_sequences,
             maxlen=self.sequence_length,
-            padding='post',  # 'post' — нули в конец, 'pre' — в начало
+            padding='post',
             dtype='int32',
             value=0
         )
@@ -192,7 +185,7 @@ class BidirectionalRNNClassifier:
             pad_sequences(
                 sequences,
                 maxlen=self.sequence_length,
-                padding='post',  # 'post' — нули в конец, 'pre' — в начало
+                padding='post',
                 dtype='int32',
                 value=0
             ),
@@ -205,7 +198,7 @@ class BidirectionalRNNClassifier:
         processed_property_sequences = pad_sequences(
             property_sequences,
             maxlen=self.sequence_length,
-            padding='post',  # 'post' — нули в конец, 'pre' — в начало
+            padding='post',
             dtype='int32',
             value=0
         )
@@ -219,7 +212,7 @@ class BidirectionalRNNClassifier:
         np.random.seed(self.random_seed)
 
     def split_byte_sequences(self, sequences, property_sequences):
-        # Создание последовательностей байт из функций
+        # Splitting sequence to subsequences
         split_sequences = []
         split_property_sequences = []
 
@@ -267,11 +260,9 @@ class BidirectionalRNNClassifier:
         return split_sequences, split_property_sequences
 
     def train(self, x_data, y_data):
-        # Обучение модели
-        # Обязательно устанавливаем seed для воспроизводимости!!!!
+        # Setting the seed for reproducibility !!!!
         self.set_seed()
 
-        # Разбиение данных
         x_train, x_val, y_train, y_val = train_test_split(
             x_data, y_data,
             test_size=self.validation_split,
@@ -279,14 +270,22 @@ class BidirectionalRNNClassifier:
             random_state=self.random_seed
         )
 
-        # Преобразование данных
-        x_train_preprocessed, y_train_preprocessed = self.__preprocess_mask_data(x_train, y_train, 0x0, 0x3)
-        x_val_preprocessed, y_val_preprocessed = self.__preprocess_mask_data(x_val, y_val, 0x0, 0x3)
+        # ALIGN VALUE and ALIGN MAX LEN depend on microcontroller architecture !!!!
+        if self.random_padding_on_train:
+            x_train_preprocessed, y_train_preprocessed = self.__preprocess_mask_data(x_train, y_train, 0x0, 0x3)
+        else:
+            x_train_preprocessed, y_train_preprocessed = self.__preprocess_data(x_train, y_train)
 
-        # Добавляем EarlyStopping по умолчанию, если не переданы другие коллбэки
+        if self.random_padding_on_val:
+            x_val_preprocessed, y_val_preprocessed = self.__preprocess_mask_data(x_val, y_val, 0x0, 0x3)
+        else:
+            x_val_preprocessed, y_val_preprocessed = self.__preprocess_data(x_val, y_val)
+
+
         callbacks = [
-            # EarlyStopping(monitor='val_loss', patience=5),  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
-            SklearnMetricsCallback(  # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            # TODO Early Stopping callback can affect the evaluation metrics
+            # EarlyStopping(monitor='val_loss', patience=5),
+            SklearnMetricsCallback(
                 validation_data=(x_val_preprocessed, y_val_preprocessed)
             ),
         ]
@@ -297,40 +296,32 @@ class BidirectionalRNNClassifier:
             epochs=self.epochs,
             validation_data=(x_val_preprocessed, y_val_preprocessed),
             callbacks=callbacks,
-            class_weight={0: 1, 1: 100}  # # TODO МОЖЕТ ВЛИЯТЬ НА РЕЗУЛЬТАТ ОБУЧЕНИЯ, ТРЕБУЕТ ОТСМОТРА
+            # TODO Class weights can affect the evaluation metrics
+            class_weight={0: 1, 1: 100}
         )
         return history
 
     def predict(self, byte_sequence):
-        # Предсказание свойства начала функции для каждого байта в последовательности
-
-        # Предобработка данных (дополнение нулями)
         encoded = self.__preprocess_data([byte_sequence], None)
 
-        # Предсказание
         predictions = self.model.predict(encoded)
-        return predictions  # Возвращаем прогнозы для первой последовательности
+        return predictions
 
     def summary(self):
-        # Вывод информации о модели
         return self.model.summary()
 
     def save_weights(self, filepath, overwrite=True):
-        # Сохранение весов
         self.model.save_weights(filepath, overwrite=overwrite)
 
     def load_weights(self, filepath):
-        # Загрузка весов модели
         if not os.path.exists(filepath):
-            raise FileNotFoundError(f"Файл весов не найден: {filepath}")
+            raise FileNotFoundError(f"The weight file was not found: {filepath}")
         self.model.load_weights(filepath)
 
     def save_model(self, filepath, overwrite=True):
-        # Сохранение модели
         self.model.save(filepath, overwrite=overwrite)
 
     def load_model(self, filepath):
-        # Загрузка модели
         if not os.path.exists(filepath):
-            raise FileNotFoundError(f"Файл модели не найден: {filepath}")
+            raise FileNotFoundError(f"The model file was not found: {filepath}")
         self.model.load_model(filepath)
