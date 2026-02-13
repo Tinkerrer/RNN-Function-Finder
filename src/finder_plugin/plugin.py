@@ -8,21 +8,20 @@ import os
 from pluginform import FunctionStartFinderForm
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing.sequence import pad_sequences
-
-SEQUENCE_LENGTH = 1000
+from tensorflow import one_hot
 
 
 class FunctionStartFinderPlugmod(ida_idaapi.plugmod_t):
     def __del__(self):
         print(">>> FunctionStartFinderPlugmod: destructor called.")
 
-    def split_byte_sequence(self, byte_sequence):
+    def split_byte_sequence(self, byte_sequence, seq_len):
         split_sequences = []
 
-        for j in range(0, len(byte_sequence), SEQUENCE_LENGTH):
-            split_sequences.append(list(byte_sequence[j:j + SEQUENCE_LENGTH]))
+        for j in range(0, len(byte_sequence), seq_len):
+            split_sequences.append(list(byte_sequence[j:j + seq_len]))
 
-        tail_length = len(byte_sequence) % SEQUENCE_LENGTH
+        tail_length = len(byte_sequence) % seq_len
 
         if tail_length != 0:
             split_sequences.append(
@@ -32,23 +31,35 @@ class FunctionStartFinderPlugmod(ida_idaapi.plugmod_t):
 
         return split_sequences
 
-    def preprocess_data(self, sequences_list):
-        return pad_sequences(
-            sequences_list,
-            maxlen=SEQUENCE_LENGTH,
-            padding='post',  # 'post' — нули в конец, 'pre' — в начало
-            dtype='int32',
-            value=0
+    def preprocess_data(self, sequences_list, seq_len):
+        return one_hot(
+            pad_sequences(
+                sequences_list,
+                maxlen=seq_len,
+                padding='post',
+                dtype='int32',
+                value=0
+            ),
+            256
         )
 
-    def prepare_byte_seq(self, byte_sequence):
-        return self.preprocess_data(self.split_byte_sequence(byte_sequence))
+    # def preprocess_data(self, sequences_list):
+    #     return pad_sequences(
+    #         sequences_list,
+    #         maxlen=SEQUENCE_LENGTH,
+    #         padding='post',  # 'post' — нули в конец, 'pre' — в начало
+    #         dtype='int32',
+    #         value=0
+    #     )
 
-    def predict_function_start(self, start_addr, end_addr, model_filepath, soft_predict=False):
+    def prepare_byte_seq(self, byte_sequence, seq_len):
+        return self.preprocess_data(self.split_byte_sequence(byte_sequence, seq_len), seq_len)
+
+    def predict_function_start(self, start_addr, end_addr, model_filepath, seq_len=1000, soft_predict=False):
 
         loaded_model = load_model(model_filepath)
 
-        prepared_byte_seq = self.prepare_byte_seq(idaapi.get_bytes(start_addr, end_addr - start_addr))
+        prepared_byte_seq = self.prepare_byte_seq(idaapi.get_bytes(start_addr, end_addr - start_addr), seq_len)
 
         predicted = loaded_model.predict(prepared_byte_seq)
 
@@ -57,13 +68,13 @@ class FunctionStartFinderPlugmod(ida_idaapi.plugmod_t):
 
         if soft_predict:
             for addr in range(start_addr, end_addr):
-                if predicted[(addr - start_addr) // SEQUENCE_LENGTH][(addr - start_addr) % SEQUENCE_LENGTH] > 0.5:
+                if predicted[(addr - start_addr) // seq_len][(addr - start_addr) % seq_len] > 0.5:
                     ida_funcs.set_func_cmt(addr, "Possible Func Start !!!", 1)
                     found_ctr += 1
 
         else:
             for addr in range(start_addr, end_addr):
-                if predicted[(addr - start_addr) // SEQUENCE_LENGTH][(addr - start_addr) % SEQUENCE_LENGTH] > 0.5:
+                if predicted[(addr - start_addr) // seq_len][(addr - start_addr) % seq_len] > 0.5:
 
                     if ida_funcs.add_func(addr):
                         found_ctr += 1
@@ -88,7 +99,7 @@ class FunctionStartFinderPlugmod(ida_idaapi.plugmod_t):
         if ret_tuple is None:
             return
 
-        start_addr, end_addr, model_file_name, soft_find = ret_tuple
+        start_addr, end_addr, model_file_name, seq_len, soft_find = ret_tuple
 
         if not os.path.exists(model_file_name):
             print("Model file doesn't exist, try again(")
@@ -99,7 +110,7 @@ class FunctionStartFinderPlugmod(ida_idaapi.plugmod_t):
             return
 
         # Checks
-        self.predict_function_start(start_addr, end_addr, model_file_name, soft_find)
+        self.predict_function_start(start_addr, end_addr, model_file_name, seq_len, soft_find)
 
 
 class FunctionStartFinderPlugin(ida_idaapi.plugin_t):

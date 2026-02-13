@@ -8,8 +8,8 @@ from pathlib import Path
 from model import BidirectionalRNNClassifier
 
 # Random padding between functions FLAG
-RANDOM_PADDING_ON_TRAIN = True
-RANDOM_PADDING_ON_VALUE = True
+RANDOM_PADDING_ON_TRAIN = False
+RANDOM_PADDING_ON_VALUE = False
 
 def main(idb_dir_path):
     idb_data = []
@@ -67,7 +67,8 @@ def main(idb_dir_path):
                     # idb_data.append(bytes(bytearray_seq))
                     # idb_func_property.append(property_seq)
 
-    model = BidirectionalRNNClassifier(random_padding_on_train=RANDOM_PADDING_ON_TRAIN, random_padding_on_val=RANDOM_PADDING_ON_VALUE)
+    model = BidirectionalRNNClassifier(random_padding_on_train=RANDOM_PADDING_ON_TRAIN, random_padding_on_val=RANDOM_PADDING_ON_VALUE,
+                                       neurons_num=32, sequence_length=50)
 
     print(f"Total functions number: {sum(sum(seq) for seq in idb_func_property)}")
     print(f"Total bytes number: {sum(len(seq) for seq in idb_func_property)}")

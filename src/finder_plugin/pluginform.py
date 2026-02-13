@@ -29,9 +29,11 @@ class FunctionStartFinderForm(QDialog):
         start_addr = int(self.start_addr_edit.text(), 16)
         end_addr = int(self.end_addr_edit.text(), 16)
 
+        seq_len = int(self.seq_len_edit.text())
+
         soft_find = self.soft_prediction_check.isChecked()
 
-        return start_addr, end_addr, self.file_name, soft_find
+        return start_addr, end_addr, self.file_name, seq_len, soft_find
 
     def init_ui(self):
         # Main layout
@@ -56,6 +58,16 @@ class FunctionStartFinderForm(QDialog):
         end_layout.addWidget(self.end_addr_edit)
 
         layout.addLayout(end_layout)
+
+        # Sequence len layout
+        seq_len_layout = QHBoxLayout()
+        seq_len_layout.addWidget(QLabel("Sequence length : Decimal"))
+
+        self.seq_len_edit = QLineEdit()
+        self.seq_len_edit.setPlaceholderText("Enter sequence length ...")
+        seq_len_layout.addWidget(self.seq_len_edit)
+
+        layout.addLayout(seq_len_layout)
 
         # Settings layout
         settings_layout = QHBoxLayout()
